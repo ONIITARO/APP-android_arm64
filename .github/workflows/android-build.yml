@@ -1,0 +1,82 @@
+name: Build APK (GitHub Actions)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Locate Gradle Wrapper
+        id: locate
+        shell: bash
+        run: |
+          set -e
+          candidates=(
+            "./gradlew"
+            "./Android/gradlew"
+            "./android/gradlew"
+            "./src/gradlew"
+            "./app/gradlew"
+          )
+
+          for c in "${candidates[@]}"; do
+            if [ -f "$c" ]; then
+              dir="$(dirname "$c")"
+              echo "Found gradlew at: $c"
+              echo "GRADLEW=$c" >> $GITHUB_ENV
+              echo "WORKDIR=$dir" >> $GITHUB_ENV
+              exit 0
+            fi
+          done
+
+          echo "❌ gradlew not found in common locations."
+          echo "Repository tree (top-level):"
+          ls -la
+          exit 1
+
+      - name: Make gradlew executable
+        shell: bash
+        run: |
+          chmod +x "${GRADLEW}"
+
+      # اگر پروژه submodule داره اینو روشن کن
+      # - name: Checkout submodules
+      #   run: git submodule update --init --recursive
+
+      - name: Build APK (Debug)
+        shell: bash
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          set -e
+          ./gradlew --version
+          ./gradlew clean :app:assembleDebug
+
+      - name: Find build outputs
+        shell: bash
+        run: |
+          echo "==== APK/AAB outputs ===="
+          find . -type f \( -name "*.apk" -o -name "*.aab" \) -path "*build/outputs/*" -maxdepth 8 -print || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: |
+            **/build/outputs/apk/**/*.apk
+            **/build/outputs/bundle/**/*.aab
+            **/build/outputs/mapping/**/mapping.txt
+          if-no-files-found: error
